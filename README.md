@@ -1,5 +1,5 @@
 ### Goal
-Build an end-to-end data pipeline that ingests daily furniture store sales data, cleans and it, and stores it in a PostgreSQL database to support basic sales reporting.
+Build an end-to-end data pipeline that ingests daily furniture store sales data, cleans it, and stores it in a PostgreSQL database to support basic sales reporting.
 
 ### Tech Stack
 - Airflow
