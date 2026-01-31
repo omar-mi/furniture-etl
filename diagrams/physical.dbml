@@ -1,0 +1,37 @@
+Table raw_customers {
+  customer_id varchar [pk]
+  first_name varchar
+  last_name varchar
+  email varchar
+  country varchar
+  signup_date date
+}
+
+Table raw_furniture {
+  furniture_id varchar [pk]
+  product_name varchar
+  category varchar
+  material varchar
+  base_price decimal
+}
+
+Table raw_orders {
+  order_id varchar [pk]
+  customer_id varchar
+  order_date date
+  order_status varchar
+  customer_country varchar
+}
+
+Table raw_sales {
+  sale_id varchar [pk]
+  order_id varchar
+  furniture_id varchar
+  quantity int
+  discount decimal
+  total_price decimal
+}
+
+Ref: raw_orders.customer_id > raw_customers.customer_id
+Ref: raw_sales.order_id > raw_orders.order_id
+Ref: raw_sales.furniture_id > raw_furniture.furniture_id
