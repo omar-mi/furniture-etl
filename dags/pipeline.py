@@ -7,7 +7,33 @@ from sqlalchemy import create_engine
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator
 
-def ingest_and_insert():
+def ingest_tables() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """
+    Retrieve raw data tables from a Google Cloud Storage (GCS) bucket and load them into pandas DataFrames.
+
+    This function authenticates using a local service account key file, connects to the
+    specified GCS bucket, downloads four CSV files as bytes, and reads them into
+    pandas DataFrames.
+
+    Files retrieved from the bucket:
+        - customers_raw.csv → customers_df
+        - furniture_raw.csv → furniture_df
+        - orders_raw.csv → orders_df
+        - sales_raw.csv → sales_df
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+            A tuple containing four pandas DataFrames in the following order:
+            (customers_df, furniture_df, orders_df, sales_df)
+
+    Raises:
+        google.cloud.exceptions.NotFound:
+            If the bucket or any of the specified blobs do not exist.
+        FileNotFoundError:
+            If the service account key file is not found at the specified path.
+        pandas.errors.ParserError:
+            If any of the downloaded CSV files cannot be parsed.
+    """
     service_account_key = "./dags/keys/gcs.json"
     bucket_name = "raw-furniture-data"
     client = storage.Client.from_service_account_json(service_account_key)
@@ -28,6 +54,42 @@ def ingest_and_insert():
     sales_blob = bucket.blob("sales_raw.csv")
     sales_bytes = sales_blob.download_as_bytes()
     sales_df = pd.read_csv(io.BytesIO(sales_bytes))
+
+    return customers_df, furniture_df, orders_df, sales_df
+
+def insert_tables():
+    """
+    Load raw data tables into a PostgreSQL database schema.
+
+    This function retrieves raw DataFrames by calling `ingest_tables()`, loads
+    database credentials from environment variables, establishes a SQLAlchemy
+    engine connection to a PostgreSQL database, and appends the data to
+    predefined tables within the `raw_data` schema.
+
+    Environment Variables Required:
+        - POSTGRES_USER: Database username
+        - POSTGRES_PASSWORD: Database password
+        - POSTGRES_DB: Target database name
+
+    Target Tables (schema: raw_data):
+        - raw_customers   ← customers_df
+        - raw_furniture   ← furniture_df
+        - raw_orders      ← orders_df
+        - raw_sales       ← sales_df
+
+    Behavior:
+        - Data is appended to existing tables (`if_exists="append"`).
+        - Table indexes are not written to the database (`index=False`).
+
+    Raises:
+        sqlalchemy.exc.SQLAlchemyError:
+            If a database connection or insert operation fails.
+        ValueError:
+            If required environment variables are missing.
+        Exception:
+            Propagates any exception raised by `ingest_tables()`.
+    """
+    customers_df, furniture_df, orders_df, sales_df = ingest_tables()
 
     load_dotenv()
     db_user = os.getenv("POSTGRES_USER")
@@ -57,9 +119,9 @@ with DAG(
         sql="./sql/ddl/clean_ddl.sql"
     )
 
-    ingest_and_insert = PythonOperator(
-        task_id="ingest_and_insert",
-        python_callable=ingest_and_insert
+    insert_tables_task = PythonOperator(
+        task_id="insert_tables",
+        python_callable=insert_tables
     )
 
     insert_clean = SQLExecuteQueryOperator(
@@ -68,4 +130,4 @@ with DAG(
         sql="./sql/insert_clean.sql"
     )
 
-    prep_raw_schema >> prep_clean_schema >> ingest_and_insert >> insert_clean
+    prep_raw_schema >> prep_clean_schema >> insert_tables_task >> insert_clean
